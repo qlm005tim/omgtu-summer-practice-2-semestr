@@ -1,0 +1,129 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!csharp
+
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!markdown
+
+# Практическая работа №1. Знакомство с потоками.
+
+**Цель:** Познакомиться с возможностями класса System.Thread платформы .NET Framework.
+
+**Результаты:** После выполнения работы Вы сможете:
+1. Запускать длительные операции в отдельном потоке.
+2. Завершать поток.
+3. Дожидаться завершения выполнения потока. 
+
+
+**Материалы для самостоятельного изучения**.
+1. [Основы управления потоками](https://learn.microsoft.com/en-us/dotnet/standard/threading/managed-threading-basics)
+2. [Использование потоков](https://learn.microsoft.com/en-us/dotnet/standard/threading/using-threads-and-threading)
+3. [Примитив синхронизации Барьер](https://learn.microsoft.com/ru-ru/dotnet/standard/threading/barrier)
+4. [Interlocked операции](https://learn.microsoft.com/en-us/dotnet/api/system.threading.interlocked?view=net-8.0)
+
+## Задание.
+Реализовать вычисление определенного интеграла методом трапеции в несколько потоков.
+
+Отрезок, на котором происходит вычисление, разбивается на отрезки по количеству потоков. Для каждого отрезка значение 
+интеграла считается в отдельном потоке, после завершения вычисоения полученный рельтаты суммирутся.
+
+**Указание**.
+1. Для суммирования результатов удобно воспользоваться разделяемой переменной, к которой будут прибалятся результаты вычисления прямо в самом потоке. Для синхронизации операций сложения лучше всего восользоваться [Interlocked операцией](https://learn.microsoft.com/en-us/dotnet/api/system.threading.interlocked?view=net-8.0).
+2. Основная функция долна дождаться завершения всех потоков, которые вычисляют значение на отрезках, прежде чем возвратить результат. Для этого удобнее всего использовать Примитив синхронизации Барьер](https://learn.microsoft.com/ru-ru/dotnet/standard/threading/barrier).
+
+#!csharp
+using System;
+using System.Threading;
+//
+// Вычисление определенного интеграла
+//
+class DefiniteIntegral
+{
+    //
+    // a, b - границы отрезка, на котором происходит вычисление опредленного интеграла
+    // function - функция, для которой вычисляется определнный интеграл
+    // step - размер одного шага разбиения
+    // threadsNumber - число потоков, которые используются для вычислений
+    //
+    public static double Solve(double a, double b, Func<double, double> function, double step, int threadsnumber)
+    {
+        double totalArea = 0;
+        
+        double partitionSize = (b - a) / threadsnumber;
+        
+        object lockObject = new object();
+        ManualResetEvent barrier = new ManualResetEvent(false);
+        int threadsFinished = 0;
+
+        for (int i = 0; i < threadsnumber; i++)
+        {
+            
+            double start = a + i * partitionSize;
+            double end = start + partitionSize;
+
+            if (i == threadsnumber - 1)
+            {
+                end = b;
+            }
+
+            new Thread(() =>
+            {
+                double localArea = 0;
+                double x = start;
+
+                while (x < end)
+                {
+                    double y1 = function(x);
+                    double y2 = function(x + step);
+                    localArea += (y1 + y2) * step / 2;
+                    x += step;
+                }
+                
+                lock (lockObject)
+                {
+                    totalArea += localArea;
+                }
+
+                if (Interlocked.Increment(ref threadsFinished) == threadsnumber)
+                    barrier.Set();
+            }).Start();
+        }
+
+        barrier.WaitOne();
+        return totalArea;
+        
+    }
+}
+//тесты, которые прошли
+#r "nuget: xunit, 2.8.1"
+
+using Xunit;
+
+var X = (double x) => x;
+var SIN = (double x) => Math.Sin(x);
+
+Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-3);
+
+Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
+
+Assert.Equal(50, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-4);
+
+#!csharp
+
+#r "nuget: xunit, 2.8.1"
+
+using Xunit;
+
+var X = (double x) => x;
+var SIN = (double x) => Math.Sin(x);
+
+Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-4);
+
+Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
+
+Assert.Equal(10, DefiniteIntegral.Solve(0, 5, X, 1e-6, 8), 1e-5);
