@@ -84,6 +84,32 @@ class DefiniteIntegral
 
 #!csharp
 
+//оптимальный шаг
+#r "nuget: xunit, 2.8.1"
+
+using Xunit;
+using System.Diagnostics;
+var SIN = (double x) => Math.Sin(x);
+Stopwatch time = new Stopwatch();
+
+double[] steps = { 1e-1, 1e-2, 1e-3, 1e-4 };
+
+foreach (double step in steps)
+{
+    double time100=0;
+    for (int i=0; i<100;i++)
+    {
+        time.Restart();
+        Assert.Equal(0, DefiniteIntegral.Solve1(-100, 100, SIN, step), 1e-4);
+        time.Stop();
+        time100 += time.Elapsed.TotalMilliseconds;
+    }
+    Console.WriteLine($"Среднее время работы с шагом {step}: {time100/100} мс");
+    
+}
+
+#!csharp
+
 #r "nuget: xunit, 2.8.1"
 
 using Xunit;
