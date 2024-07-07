@@ -37,10 +37,195 @@
 Для этого следует использовать условные события, которые позволят убедиться, что оба потока запустились и готовы читать и писать объекты и только потом запускать таймер.
 2. Для итогового вывода сравнивать усредненные значения.
 
-#!markdown
+#!csharp
 
 // здесь писать код
+using System;
+using System.Threading;
+using System.Diagnostics;
+using System.Collections.Concurrent;
+using Microsoft.DotNet.Interactive.Formatting;
+// Установка ScottPlot NuGet package
+#r "nuget:ScottPlot, 5.0.*"
+
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(400, 300)), HtmlFormatter.MimeType);// Настройка ScottPlot
+
+ScottPlot.Plot plt = new();
+
+#!csharp
+
+//simple queue
+double[] sqTimes = new double[10];
+
+for(int j = 0; j < 10; j++)
+{
+    Queue<int> sq = new Queue<int>();
+    
+    Stopwatch sqreadtime = new Stopwatch();
+    Stopwatch sqhandletime = new Stopwatch();
+    Stopwatch sqwritetime = new Stopwatch();
+
+    sqhandletime.Start();
+    sqwritetime.Start();
+    for(int i = 0; i < 1000000; i ++)
+    {
+        sq.Enqueue(i);
+    }
+    sqwritetime.Stop();
+
+    sqreadtime.Start();
+    for(int i = 0; i < 1_000_000; i ++)
+    {
+        int ob = sq.Dequeue();
+    }
+    sqreadtime.Stop();
+    sqhandletime.Stop();
+
+    Console.WriteLine($"с использованием обычной очереди запись, чтение и обработка замер номер {j+1}: {sqwritetime.Elapsed.TotalMilliseconds}, {sqreadtime.Elapsed.TotalMilliseconds}, {sqhandletime.Elapsed.TotalMilliseconds} ms");
+    
+    sqTimes[j] = sqhandletime.Elapsed.TotalMilliseconds;
+}
+
+#!csharp
+
+static ManualResetEvent ThreadChecker1 = new ManualResetEvent(false);//
+static ManualResetEvent ThreadChecker2 = new ManualResetEvent(false);
+//BlockingCollection
+double[] bcTimes = new double[10];
+
+for(int j = 0; j < 10; j++)
+{
+    Stopwatch bchandletime = new Stopwatch();
+    var bq = new BlockingCollection<int>();
+
+    Thread Threadw = new Thread(() => Writing(bq));
+    Thread Threadr = new Thread(() => Reading(bq));
+    Threadw.Start();
+    Threadr.Start();
+
+    Console.WriteLine($"замер № {j+1}");
+    ThreadChecker1.Set();
+    ThreadChecker2.Set();
+
+    bchandletime.Start();
+    Threadw.Join();
+    Threadr.Join();
+    bchandletime.Stop();
+
+    Console.WriteLine($"Общее время обработки {bchandletime.Elapsed.TotalMilliseconds} ms");
+    ThreadChecker1.Reset();
+    ThreadChecker2.Reset();
+    bcTimes[j] = bchandletime.Elapsed.TotalMilliseconds;
+
+    static void Writing(BlockingCollection<int> bq)
+    {
+        ThreadChecker2.WaitOne();
+        Stopwatch stopwatchw = Stopwatch.StartNew();
+
+        for (int i = 0; i < 1000000; i++)
+        {
+            bq.Add(i);
+        }
+
+        stopwatchw.Stop();
+
+        Console.WriteLine($"Время записи в BlockingCollection: {stopwatchw.Elapsed.TotalMilliseconds} ms");
+    }
+
+    static void Reading(BlockingCollection<int> bq)
+    {
+        ThreadChecker1.WaitOne();
+        Stopwatch stopwatchr = Stopwatch.StartNew();
+        int ob;
+        int i = 0;
+        while(i < 1000000)
+        {
+            if(bq.TryTake(out ob))
+            {
+                i++;
+            }
+        }
+        stopwatchr.Stop();
+        Console.WriteLine($"Время чтения из BlockingCollection: {stopwatchr.Elapsed.TotalMilliseconds} ms");
+    }
+    
+}
+
+#!csharp
+
+//ConcurrentQueue
+double[] cqTimes = new double[10];
+for(int j = 0; j < 10; j++)
+{
+    var cq = new ConcurrentQueue<int>();
+    Stopwatch cqtime = new Stopwatch();
+
+    var writerThread = new Thread(() => Writing(cq));
+    writerThread.Start();
+    var readerThread = new Thread(() => Reading(cq));
+    readerThread.Start();
+    Console.WriteLine($"замер № {j+1}");
+
+    ThreadChecker1.Set();
+    ThreadChecker2.Set();
+    cqtime.Start();
+
+    writerThread.Join();
+    readerThread.Join();
+    cqtime.Stop();
+
+    Console.WriteLine($"Общее время обработки {cqtime.Elapsed.TotalMilliseconds} ms");
+
+    ThreadChecker1.Reset();
+    ThreadChecker2.Reset();
+
+    cqTimes[j] = cqtime.Elapsed.TotalMilliseconds;
+
+    
+    static void Writing(ConcurrentQueue<int> cq)
+    {
+        ThreadChecker2.WaitOne();
+        Stopwatch stopwatchw = Stopwatch.StartNew();
+
+        for (int i = 0; i < 1000000; i++)
+        {
+            cq.Enqueue(i);
+        }
+        stopwatchw.Stop();
+        Console.WriteLine($"Время записи в ConcurrentQueue: {stopwatchw.Elapsed.TotalMilliseconds}");
+    }
+
+    static void Reading(ConcurrentQueue<int> cq)
+    {
+        ThreadChecker1.WaitOne();
+        Stopwatch stopwatchr = Stopwatch.StartNew();
+        int ob;
+        for (int i = 0; i < 1000000; i++) 
+        {
+            cq.TryDequeue(out ob);
+        }
+        stopwatchr.Stop();
+        Console.WriteLine($"Время чтения из ConcurrentQueue: {stopwatchr.Elapsed.TotalMilliseconds} ms");
+    }
+    
+}
+
+#!csharp
+
+// graph
+plt.Add.Scatter(new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, sqTimes);
+plt.Add.Scatter(new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, bcTimes);
+plt.Add.Scatter(new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, cqTimes);
+
+Console.WriteLine($"Среднее время обработки 1000000 значений при помощи непотокобезопасной очереди {sqTimes.Sum()/10} мс");
+Console.WriteLine($"Среднее время обработки 1000000 значений при помощи BlockingCollection {bcTimes.Sum()/10} мс");
+Console.WriteLine($"Среднее время обработки 1000000 значений при помощи ConcurrentQueue {cqTimes.Sum()/10} мс");
 
 #!markdown
 
 ## Вывод
+Среднее время обработки 1000000 значений при помощи непотокобезопасной очереди 10.64108 мс
+Среднее время обработки 1000000 значений при помощи BlockingCollection 140.49446 мс
+Среднее время обработки 1000000 значений при помощи ConcurrentQueue 8.069890000000001 мс
+Самая быстрая потокобезопасная очередь ConcurrentQueue, на ~24.15% эффективнее относительно непотокобезопасной очереди
