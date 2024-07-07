@@ -56,11 +56,39 @@ class Message
 #!csharp
 
 using System.Collections.Concurrent;
-
+using System.Threading;
 var queue1 = new BlockingCollection<Message>(2); //очередь первого потока
 var queue2 = new BlockingCollection<Message>(2); //очередь второго потока
 
 // Здесь писать решение
+queue1.Add(new Message()); 
+queue2.Add(new Message());
+
+void PingPong(BlockingCollection<Message> curQueue, BlockingCollection<Message> secQueue, int allMessages)
+{
+    int cMessages = 0;
+    while (cMessages < allMessages)
+    {
+        if (curQueue.TryTake(out Message message, Timeout.Infinite))
+        {
+            message.Handle();
+            Interlocked.Increment(ref cMessages);
+
+            if (cMessages < allMessages)
+            {
+                secQueue.Add(new Message());
+            }
+        }
+    }
+}
+
+Thread t1 = new Thread(() => { PingPong(queue1, queue2, 100); });
+Thread t2 = new Thread(() => { PingPong(queue2, queue1, 100); });
+
+t1.Start();
+t2.Start();
+t1.Join();
+t2.Join();
 
 #!csharp
 
