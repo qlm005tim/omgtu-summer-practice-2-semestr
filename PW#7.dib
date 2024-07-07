@@ -38,3 +38,182 @@ ServerThread может менять свое поведение для обра
 Отсутствие Команд в очереди потока не должно требовать значительных затрат процессорного времени. Значительными считаются затраты, которые зависят от времени простоя потока.
 
 Написать проверку, которая гарантирует правильное выполнение команд HardStop и SoftStop.
+
+#!csharp
+
+using System;
+using System.Threading;
+using System.Collections.Concurrent;
+
+#!csharp
+
+public class ServerThread 
+{
+    private bool hardStop = false;
+    private bool softStop = false;
+    
+    private ConcurrentQueue<ICommand> commands = new ConcurrentQueue<ICommand>();
+
+    public bool is_thrun = true;//flag of thread running
+    public int id { get; set; }//id of thread
+
+    public void HardStop() 
+    {
+        hardStop = true;
+    }
+
+    public void SoftStop() 
+    {
+            softStop = true;
+    }
+
+    public void ComAdd(ICommand command) 
+    {    
+        if (command is HardStopCommand) 
+        {
+            Console.WriteLine($"в очереди {commands.Count()} команд");
+            commands.Clear();
+            Console.WriteLine("HardStop");
+            commands.Enqueue(command);
+        } 
+
+        else 
+        {
+            commands.Enqueue(command);
+        }
+    }
+
+    public void Start() 
+    {
+        Thread thread = new Thread(Runcom);
+        thread.Start();
+        id = thread.ManagedThreadId;
+    }
+
+    
+    private void Runcom()
+    {
+        while(!hardStop)
+        {
+            if(commands.TryDequeue(out ICommand command)) 
+            {
+                command.Execute();                
+            }
+            else 
+            {
+                if(softStop) 
+                {
+                    Console.WriteLine($"В очереди {commands.Count()}");
+                    Console.WriteLine("SoftStop");
+                    is_thrun = false;
+                    break;
+                }
+                else 
+                {
+                    Thread.Sleep(100);
+                    continue;
+                }
+            }
+        }
+
+        is_thrun = false;
+    }
+    
+}
+
+
+public class HardStopCom : ICommand 
+{
+
+    private ServerThread thread;
+
+    public HardStopCom(ServerThread thread) 
+    {
+        this.thread = thread;
+    }
+
+    public void Execute() 
+    {
+        if(Thread.CurrentThread.ManagedThreadId == thread.id) 
+        {
+            thread.HardStop();
+        }
+        else 
+        {
+            throw new ("HardStop может выполняться только в потоке");
+        }
+    }
+}
+
+public class SoftStopCom : ICommand 
+{
+    
+    private ServerThread thread;
+
+    public SoftStopCom(ServerThread thread) 
+    {
+        this.thread = thread;
+    }
+
+    public void Execute() 
+    {
+        if(Thread.CurrentThread.ManagedThreadId == thread.id) 
+        {
+            thread.SoftStop();
+        }
+        else 
+        {
+            throw new ("SoftStop может выполняться только в потоке");
+        }
+    }
+}
+
+public class Commandsum : ICommand 
+{
+
+    public void Execute() 
+    {
+        int s = 0;
+        for(int i = 0; i < 10; i ++) 
+        {
+            s += i;
+        }
+        Console.WriteLine($"Результат выполнения команды сложения {s}");
+
+    }
+}
+
+
+//tests with soft and hard
+ServerThread thread = new ServerThread();
+thread.Start();
+
+for(int i = 0; i < 5; i ++) 
+{
+    thread.ComAdd(new Commandsum());
+}
+
+thread.ComAdd(new SoftStopCom(thread));
+
+while(thread.is_thrun) 
+{
+    Thread.Sleep(100);
+}
+Console.WriteLine("Все потоки завершились");
+
+#!csharp
+
+ServerThread thread = new ServerThread();
+thread.Start();
+for(int i = 0; i < 5; i ++) 
+{
+    thread.ComAdd(new Commandsum());
+}
+
+thread.ComAdd(new HardStopCom(thread));
+
+while(thread.is_thrun) 
+{
+    Thread.Sleep(100);
+}
+Console.WriteLine("Все потоки завершились");
